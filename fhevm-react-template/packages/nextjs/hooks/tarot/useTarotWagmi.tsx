@@ -118,8 +118,16 @@ export const useTarotWagmi = (parameters: {
 
   const requestReading = useCallback(
     async (spreadType: TarotSpreadType = 1) => {
-      if (!hasContract || !hasSigner || !instance) {
-        setMessage("Tarot contract or signer or FHEVM instance not available");
+      if (!instance) {
+        setMessage("FHEVM instance not ready.");
+        return null;
+      }
+      if (!hasSigner) {
+        setMessage("Wallet signer not available. Please connect wallet.");
+        return null;
+      }
+      if (!hasContract) {
+        setMessage(`Tarot contract not found on chain ${chainId}.`);
         return null;
       }
 

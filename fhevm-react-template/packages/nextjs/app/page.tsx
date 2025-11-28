@@ -58,19 +58,26 @@ export default function Home() {
   }, [decryptedReading]);
 
   const handleReveal = async () => {
+    console.log("Handle Reveal Clicked");
     if (!isConnected) {
+      console.log("Not connected");
       toast.error("Please connect your wallet first");
       return;
     }
     if (!fhevmInstance) {
+      console.log("No FHEVM instance");
       toast.error("FHEVM instance not ready yet");
       return;
     }
 
+    console.log("Requesting reading...");
     const readingId = await requestReading(1);
+    console.log("Reading ID:", readingId);
     if (readingId === null) return;
 
+    console.log("Decrypting...");
     const ok = await decryptCurrentReading();
+    console.log("Decryption result:", ok);
     if (!ok) return;
 
     toast.success("Your encrypted tarot reading has been revealed locally.");
@@ -145,6 +152,12 @@ export default function Home() {
           />
         </div>
 
+        {/* Status Message Display (Always Visible) */}
+        <div className="mt-8 min-h-[2rem]">
+            {message && <p className="text-sm text-base-content/80 animate-pulse">{message}</p>}
+            {fhevmError && <p className="text-sm text-red-400">FHEVM Error: {String(fhevmError)}</p>}
+        </div>
+
         {/* Decrypted Cards Preview */}
         {cardsForDisplay && (
           <div className="w-full mt-8 space-y-4">
@@ -164,8 +177,6 @@ export default function Home() {
                 </div>
               ))}
             </div>
-            {message && <p className="text-xs text-base-content/60">{message}</p>}
-            {fhevmError && <p className="text-xs text-red-400">FHEVM: {String(fhevmError)}</p>}
           </div>
         )}
 
