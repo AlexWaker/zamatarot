@@ -1,56 +1,42 @@
 // SPDX-License-Identifier: BSD-3-Clause-Clear
 pragma solidity ^0.8.24;
 
-import { FHE, euint8, ebool } from "@fhevm/solidity/lib/FHE.sol";
-import { ZamaEthereumConfig } from "@fhevm/solidity/config/ZamaConfig.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
+// 引入 Zama FHEVM Solidity 库
+import {FHE, euint8, ebool} from "@fhevm/solidity/lib/FHE.sol";
+import {ZamaEthereumConfig} from "@fhevm/solidity/config/ZamaConfig.sol";
 
-contract Tarot is Ownable, ZamaEthereumConfig {
-    // 塔罗牌总数
+/// @title Tarot - Encrypted on-chain tarot reading using Zama FHEVM
+/// @notice Stores tarot draws as encrypted card ids + orientations on-chain.
+contract Tarot is ZamaEthereumConfig {
+    
+    /// @notice 塔罗牌总数
     uint8 public constant DECK_SIZE = 78;
 
-    // 占卜记录结构
     struct Reading {
         uint256 id;
-        address querent;        // 问卜者
+        address querent;
         uint256 timestamp;
-        uint8 spreadType;       // 牌阵类型
-        bytes32 questionHash;   // 问题哈希（承诺）
+        uint8 spreadType;
         
-        // 核心加密数据
-        // 使用数组存储抽出的牌
-        // 注意：euint8 是加密类型，不能直接在 mapping/struct 里 public view 返回，
-        // 需要专门的 view 函数
-        euint8[] encryptedCardIds;      // 0-77
-        ebool[] encryptedIsReversed;    // true/false
+        // 这里的 euint8 是 encrypted uint8，只有持有密钥的人能解密
+        euint8[] encryptedCardIds;
+        ebool[] encryptedIsReversed; 
         
-        bool isFulfilled;       // 是否完成抽牌
+        bool isFulfilled;
     }
 
-    // 计数器
     uint256 public nextReadingId;
-
-    // 存储所有占卜记录
     mapping(uint256 => Reading) public readings;
-    // 用户的所有占卜 ID
     mapping(address => uint256[]) public userReadingIds;
 
     event ReadingRequested(uint256 indexed readingId, address indexed querent);
-    event ReadingFulfilled(uint256 indexed readingId);
-
-    constructor() Ownable(msg.sender) {}
 
     /**
-     * @notice 请求一次占卜
-     * @param _spreadType 牌阵类型 (例如 0=单张, 1=圣三角)
-     * @param _questionHash 问题的哈希，用于仪式绑定
-     * @param _userSeed 用户提供的随机种子，用于注入能量
+     * @notice 请求占卜
+     * @dev 使用链上伪随机数生成牌面 ID 与正逆位，然后加密存储。
+     *      注意：随机性安全性仅适用于娱乐 / Demo，不适合高价值博彩场景。
      */
-    function requestReading(
-        uint8 _spreadType,
-        bytes32 _questionHash,
-        uint256 _userSeed
-    ) external returns (uint256) {
+    function requestReading(uint8 _spreadType) external returns (uint256) {
         uint256 readingId = nextReadingId++;
         
         Reading storage reading = readings[readingId];
@@ -58,81 +44,67 @@ contract Tarot is Ownable, ZamaEthereumConfig {
         reading.querent = msg.sender;
         reading.timestamp = block.timestamp;
         reading.spreadType = _spreadType;
-        reading.questionHash = _questionHash;
         
-        // 根据牌阵决定抽几张牌
-        uint8 cardsToDraw = 3; 
-        if (_spreadType == 0) cardsToDraw = 1;
-        else if (_spreadType == 1) cardsToDraw = 3;
+        // 确定抽牌数量（0: 单张, 1: 三张, 2: 五张）
+        uint8 cardsToDraw = 1; 
+        if (_spreadType == 1) cardsToDraw = 3;
         else if (_spreadType == 2) cardsToDraw = 5; 
 
-        // --- 链上伪随机逻辑 ---
-        uint256 seed = uint256(keccak256(abi.encodePacked(
-            block.timestamp, 
-            block.prevrandao, 
-            msg.sender, 
-            _userSeed,
-            readingId
-        )));
+        // --- 伪随机种子（仅在本地开发链 31337 上使用） ---
+        uint256 seed = uint256(
+            keccak256(
+                abi.encodePacked(
+                    block.timestamp,
+                    block.prevrandao,
+                    msg.sender,
+                    readingId
+                )
+            )
+        );
 
-        // 临时数组用于去重
-        uint8[] memory drawnIds = new uint8[](cardsToDraw);
-        bool[] memory isReversed = new bool[](cardsToDraw);
-
+        // --- 抽牌并加密存储 ---
         for (uint8 i = 0; i < cardsToDraw; i++) {
-            uint8 newCard;
-            bool duplicate;
-            
-            for (uint8 attempt = 0; attempt < 5; attempt++) {
-                seed = uint256(keccak256(abi.encodePacked(seed, attempt)));
-                newCard = uint8(seed % DECK_SIZE);
-                
-                duplicate = false;
-                for (uint8 j = 0; j < i; j++) {
-                    if (drawnIds[j] == newCard) {
-                        duplicate = true;
-                        break;
-                    }
-                }
-                if (!duplicate) break;
+            euint8 cardId;
+            ebool isReversed;
+
+            if (block.chainid == 31337) {
+                // 👉 本地 Hardhat 开发链：使用链上伪随机数，然后加密存储（方便开发调试）
+                // 1. 生成 0..DECK_SIZE-1 的明文牌 ID
+                seed = uint256(keccak256(abi.encodePacked(seed, i)));
+                uint8 clearCardId = uint8(seed % DECK_SIZE);
+
+                // 2. 生成明文正逆位布尔
+                seed = uint256(keccak256(abi.encodePacked(seed, "reversed")));
+                bool clearReversed = (seed & 1) == 1;
+
+                // 3. 转为加密类型
+                cardId = FHE.asEuint8(clearCardId);
+                isReversed = FHE.asEbool(clearReversed);
+            } else {
+                // 👉 生产 / 公网（Sepolia / mainnet）：使用 FHEVM 提供的加密随机数
+                cardId = FHE.randEuint8(DECK_SIZE);
+                isReversed = FHE.randEbool();
             }
-            require(!duplicate, "Failed to draw unique cards");
 
-            drawnIds[i] = newCard;
+            // 4. 存入结构体
+            reading.encryptedCardIds.push(cardId);
+            reading.encryptedIsReversed.push(isReversed);
+
+            // 5. 设置 ACL：允许合约自身与当前调用者使用/解密
+            FHE.allowThis(cardId);
+            FHE.allowThis(isReversed);
             
-            // 生成正逆位
-            seed = uint256(keccak256(abi.encodePacked(seed, "reversed")));
-            isReversed[i] = (seed % 2) == 1;
-        }
-
-        // --- FHE 加密存储 ---
-        for (uint8 i = 0; i < cardsToDraw; i++) {
-            // FHE.asEuint8 将明文转换为密文 (Trivial Encryption)
-            euint8 encCard = FHE.asEuint8(drawnIds[i]);
-            ebool encRev = FHE.asEbool(isReversed[i]);
-
-            reading.encryptedCardIds.push(encCard);
-            reading.encryptedIsReversed.push(encRev);
-
-            // 授权给合约自己（如果是为了后续计算）和用户（为了解密）
-            FHE.allowThis(encCard);
-            FHE.allowThis(encRev);
-            FHE.allow(encCard, msg.sender);
-            FHE.allow(encRev, msg.sender);
+            FHE.allow(cardId, msg.sender);
+            FHE.allow(isReversed, msg.sender);
         }
 
         reading.isFulfilled = true;
         userReadingIds[msg.sender].push(readingId);
 
         emit ReadingRequested(readingId, msg.sender);
-        emit ReadingFulfilled(readingId);
-
         return readingId;
     }
 
-    /**
-     * @notice 获取某次占卜的加密牌句柄
-     */
     function getReading(uint256 _readingId) external view returns (
         uint256 id,
         uint256 timestamp,
@@ -149,12 +121,4 @@ contract Tarot is Ownable, ZamaEthereumConfig {
             r.encryptedIsReversed
         );
     }
-
-    /**
-     * @notice 获取用户的所有占卜 ID
-     */
-    function getUserReadingIds(address _user) external view returns (uint256[] memory) {
-        return userReadingIds[_user];
-    }
 }
-

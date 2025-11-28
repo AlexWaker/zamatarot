@@ -4,11 +4,12 @@ export interface TarotCard {
   suit: 'Major' | 'Wands' | 'Cups' | 'Swords' | 'Pentacles';
   keywords: string[];
   description: string;
+  url: string;
 }
 
 export const TAROT_DECK: TarotCard[] = [
   // --- Major Arcana (0-21) ---
-  { id: 0, name: "The Fool", suit: "Major", keywords: ["New beginnings", "Innocence", "Spontaneity"], description: "A leap of faith into the unknown." },
+  { id: 0, name: "The Fool", suit: "Major", keywords: ["New beginnings", "Innocence", "Spontaneity"], description: "A leap of faith into the unknown.", url: "https://www.tarot.com/card/the-fool" },
   { id: 1, name: "The Magician", suit: "Major", keywords: ["Manifestation", "Resourcefulness", "Power"], description: "You have all the tools you need." },
   { id: 2, name: "The High Priestess", suit: "Major", keywords: ["Intuition", "Unconscious", "Inner voice"], description: "Trust your gut feeling." },
   { id: 3, name: "The Empress", suit: "Major", keywords: ["Fertility", "Femininity", "Beauty", "Nature"], description: "Abundance and nurturing energy." },
